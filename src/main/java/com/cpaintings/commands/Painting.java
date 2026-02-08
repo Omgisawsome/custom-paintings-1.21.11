@@ -8,7 +8,7 @@ import net.minecraft.commands.Commands;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resourcesk.ResourceLocation;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel; // FIX: ServerWorld -> ServerLevel
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;

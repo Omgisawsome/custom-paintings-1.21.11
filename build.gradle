@@ -1,5 +1,5 @@
 plugins {
-    // Loom 1.14+ is required for Minecraft 1.21.11
+    // Loom 1.14 is REQUIRED for Minecraft 1.21.11+
     id 'fabric-loom' version '1.14-SNAPSHOT'
     id 'maven-publish'
 }
@@ -15,20 +15,10 @@ repositories {
     maven { url "https://maven.nucleoid.xyz/" }
 }
 
-loom {
-    splitEnvironmentSourceSets()
-    mods {
-        "custom-paintings" {
-            sourceSet sourceSets.main
-            sourceSet sourceSets.client
-        }
-    }
-}
-
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
 
-    // CRITICAL: Use Mojang mappings for 1.21.11+
+    // CRITICAL: 1.21.11 is unobfuscated. You must use official mappings.
     mappings loom.layered() {
         officialMojangMappings()
     }
@@ -53,19 +43,4 @@ java {
     withSourcesJar()
     sourceCompatibility = JavaVersion.VERSION_21
     targetCompatibility = JavaVersion.VERSION_21
-}
-
-jar {
-    from("LICENSE") {
-        rename { "${it}_${project.base.archivesName.get()}"}
-    }
-}
-
-publishing {
-    publications {
-        create("mavenJava", MavenPublication) {
-            artifactId = project.archives_base_name
-            from components.java
-        }
-    }
 }
