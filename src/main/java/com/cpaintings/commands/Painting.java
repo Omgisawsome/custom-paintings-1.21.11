@@ -3,20 +3,20 @@ package com.cpaintings.commands;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
-import net.minecraft.commands.CommandSourceStack;
-import net.minecraft.commands.Commands;
-import net.minecraft.core.component.DataComponentType;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerLevel; // FIX: ServerWorld -> ServerLevel
-import net.minecraft.world.entity.player.Inventory;
-import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.item.component.ItemLore;
-import net.minecraft.world.level.saveddata.maps.MapId; // FIX: MapItemId -> MapId
-import net.minecraft.world.level.saveddata.maps.MapItemSavedData;
+import net.minecraft.component.ComponentType;
+import net.minecraft.component.type.LoreComponent;
+import net.minecraft.component.type.MapIdComponent;
+import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.inventory.Inventory;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
+import net.minecraft.item.map.MapState;
+import net.minecraft.registry.Registries;
+import net.minecraft.server.command.CommandManager;
+import net.minecraft.server.command.ServerCommandSource;
+import net.minecraft.server.world.ServerWorld;
+import net.minecraft.text.Text;
+import net.minecraft.util.Identifier;
 
 import javax.imageio.ImageIO;
 import java.awt.*;
@@ -29,14 +29,14 @@ import java.util.Set;
 
 public class Painting {
 
-    // FIX: MapItemId does not exist; the component holds a MapId directly.
+    // Yarn Mappings: DataComponentType -> ComponentType
     @SuppressWarnings("unchecked")
-    public static final DataComponentType<MapId> mapIdComponentType =
-            (DataComponentType<MapId>) BuiltInRegistries.DATA_COMPONENT_TYPE.get(ResourceLocation.fromNamespaceAndPath("minecraft", "map_id"));
+    public static final ComponentType<MapIdComponent> mapIdComponentType =
+            (ComponentType<MapIdComponent>) Registries.DATA_COMPONENT_TYPE.get(Identifier.of("minecraft", "map_id"));
 
     @SuppressWarnings("unchecked")
-    public static final DataComponentType<ItemLore> loreComponentType =
-            (DataComponentType<ItemLore>) BuiltInRegistries.DATA_COMPONENT_TYPE.get(ResourceLocation.fromNamespaceAndPath("minecraft", "lore"));
+    public static final ComponentType<LoreComponent> loreComponentType =
+            (ComponentType<LoreComponent>) Registries.DATA_COMPONENT_TYPE.get(Identifier.of("minecraft", "lore"));
 
     private static final Set<Long> usedChunks = new HashSet<>();
 
@@ -64,32 +64,33 @@ public class Painting {
     private static final float[] BRIGHTNESS_LEVELS = { 0.71f, 0.86f, 1.00f, 0.53f };
 
     public static void register() {
+        // Yarn: CommandManager -> Commands is handled via imports
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> dispatcher.register(
-                Commands.literal("painting")
+                CommandManager.literal("painting")
                         .then(
-                                Commands.argument("url", StringArgumentType.string())
+                                CommandManager.argument("url", StringArgumentType.string())
                                         .executes(context -> {
                                             String url = StringArgumentType.getString(context, "url");
-                                            CommandSourceStack source = context.getSource();
+                                            ServerCommandSource source = context.getSource();
                                             new Thread(() -> processPainting(source, url, 1, 1)).start();
                                             return 1;
                                         })
                                         .then(
-                                                Commands.argument("blocksx", IntegerArgumentType.integer(1))
+                                                CommandManager.argument("blocksx", IntegerArgumentType.integer(1))
                                                         .executes(context -> {
                                                             String url = StringArgumentType.getString(context, "url");
                                                             int blocksx = IntegerArgumentType.getInteger(context, "blocksx");
-                                                            CommandSourceStack source = context.getSource();
+                                                            ServerCommandSource source = context.getSource();
                                                             new Thread(() -> processPainting(source, url, blocksx, 1)).start();
                                                             return 1;
                                                         })
                                                         .then(
-                                                                Commands.argument("blocksy", IntegerArgumentType.integer(1))
+                                                                CommandManager.argument("blocksy", IntegerArgumentType.integer(1))
                                                                         .executes(context -> {
                                                                             String url = StringArgumentType.getString(context, "url");
                                                                             int blocksx = IntegerArgumentType.getInteger(context, "blocksx");
                                                                             int blocksy = IntegerArgumentType.getInteger(context, "blocksy");
-                                                                            CommandSourceStack source = context.getSource();
+                                                                            ServerCommandSource source = context.getSource();
                                                                             new Thread(() -> processPainting(source, url, blocksx, blocksy)).start();
                                                                             return 1;
                                                                         })
@@ -99,10 +100,10 @@ public class Painting {
         ));
     }
 
-    public static boolean isInventoryFull(Player player) {
+    public static boolean isInventoryFull(PlayerEntity player) {
         Inventory inventory = player.getInventory();
         for (int i = 0; i < 36; i++) {
-            ItemStack stack = inventory.getItem(i);
+            ItemStack stack = inventory.getStack(i);
             if (stack.isEmpty()) {
                 return false;
             }
@@ -110,7 +111,7 @@ public class Painting {
         return true;
     }
 
-    private static void processPainting(CommandSourceStack source, String url, int blocksx, int blocksy) {
+    private static void processPainting(ServerCommandSource source, String url, int blocksx, int blocksy) {
         try {
             BufferedImage originalImage = downloadImage(url);
             if (originalImage == null) throw new Exception("Image could not be read (null).");
@@ -119,11 +120,10 @@ public class Painting {
             int totalHeight = 128 * blocksy;
             BufferedImage resized = resizeImage(originalImage, totalWidth, totalHeight);
 
-            // FIX: ServerWorld -> ServerLevel
-            ServerLevel world = source.getLevel();
-            Player player = source.getPlayer();
+            ServerWorld world = source.getWorld();
+            PlayerEntity player = source.getPlayer();
             if (player == null) {
-                source.sendFailure(Component.literal("Player not found."));
+                source.sendError(Text.literal("Player not found."));
                 return;
             }
 
@@ -133,36 +133,35 @@ public class Painting {
                     BufferedImage tile = resized.getSubimage(x * 128, subY * 128, 128, 128);
                     long chunkPos = allocateChunk();
 
-                    MapItemSavedData mapState = createMapStateForTile(world, chunkPos, tile);
+                    MapState mapState = createMapStateForTile(world, chunkPos, tile);
 
-                    // Mojang 1.21.11: Use getFreeMapId() and setMapData()
-                    MapId mapId = world.getFreeMapId();
-                    world.setMapData(mapId, mapState);
+                    // Yarn API 1.21+
+                    MapIdComponent mapId = world.increaseAndGetMapId();
+                    world.putMapState(mapId, mapState);
 
                     ItemStack mapItem = new ItemStack(Items.FILLED_MAP);
-                    // FIX: MapItemId -> MapId (No wrapper needed)
                     mapItem.set(mapIdComponentType, mapId);
 
-                    ItemLore lore = new ItemLore(Collections.singletonList(Component.literal("[" + x + "," + y + "]")));
+                    LoreComponent lore = new LoreComponent(Collections.singletonList(Text.literal("[" + x + "," + y + "]")));
 
                     if (blocksx > 1 && blocksy > 1) {
                         mapItem.set(loreComponentType, lore);
                     }
 
                     if (isInventoryFull(player)) {
-                        player.drop(mapItem, false);
+                        player.dropItem(mapItem, false);
                     } else {
-                        player.getInventory().add(mapItem);
+                        player.getInventory().insertStack(mapItem);
                     }
                 }
             }
 
-            source.sendSuccess(
-                    () -> Component.literal("Created " + (blocksx * blocksy) + " maps. Check your inventory!"),
+            source.sendFeedback(
+                    () -> Text.literal("Created " + (blocksx * blocksy) + " maps. Check your inventory!"),
                     false
             );
         } catch (Exception e) {
-            source.sendFailure(Component.literal("An error occurred: " + e.getMessage()));
+            source.sendError(Text.literal("An error occurred: " + e.getMessage()));
         }
     }
 
@@ -183,24 +182,25 @@ public class Painting {
         return resized;
     }
 
-    private static MapItemSavedData createMapStateForTile(ServerLevel world, long chunkPos, BufferedImage image) {
+    private static MapState createMapStateForTile(ServerWorld world, long chunkPos, BufferedImage image) {
         int centerX = (int) (chunkPos >> 32) << 4;
         int centerZ = (int) (chunkPos & 0xFFFFFFFFL) << 4;
 
-        MapItemSavedData mapState = MapItemSavedData.create(
+        // Yarn: MapState.of() instead of MapItemSavedData.create()
+        MapState mapState = MapState.of(
                 centerX + 64,
                 centerZ + 64,
                 (byte) 2,
                 false,
                 false,
-                world.dimension()
+                world.getRegistryKey()
         );
 
         updateMapStateWithImage(mapState, image);
         return mapState;
     }
 
-    private static void updateMapStateWithImage(MapItemSavedData mapState, BufferedImage image) {
+    private static void updateMapStateWithImage(MapState mapState, BufferedImage image) {
         for (int z = 0; z < 128; z++) {
             for (int x = 0; x < 128; x++) {
                 int argb = image.getRGB(x, z);
@@ -213,7 +213,7 @@ public class Painting {
                 }
             }
         }
-        mapState.setDirty();
+        mapState.markDirty();
     }
 
     private static int mapColorToMapData(int argb) {
