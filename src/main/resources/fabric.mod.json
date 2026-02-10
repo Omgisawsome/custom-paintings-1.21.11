@@ -5,7 +5,8 @@
 	"name": "Custom Paintings",
 	"description": "Custom Paintings!",
 	"authors": [
-		"GroceyLot"
+		"GroceyLot (owner)",
+      "random_revilo (porter/developer)"
 	],
 	"contact": {
 		"issues": "https://github.com/GroceyLot/custom-paintings-1.21.4/issues",
@@ -24,7 +25,7 @@
 	],
 	"depends": {
 		"fabricloader": ">=0.16.9",
-		"minecraft": "~1.21.11",
+        "minecraft": ">=1.21.9 <=1.21.11",
 		"java": ">=21",
 		"fabric-api": "*"
 	},
